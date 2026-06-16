@@ -22,10 +22,6 @@ import androidx.navigation3.runtime.NavKey
 import com.example.wifidirectmesh.Chat
 import com.wifidirect.mesh.models.CongestionState
 import com.wifidirect.mesh.models.WiFiPeer
-import com.wifidirect.mesh.models.WiFiAuditLogEntry
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @Composable
 fun MainScreen(
@@ -38,7 +34,6 @@ fun MainScreen(
     val congestionState by viewModel.congestionState.collectAsState()
     val operatingMode by viewModel.operatingMode.collectAsState()
     val peers by viewModel.peers.collectAsState()
-    val logs by viewModel.logs.collectAsState()
 
     var showSendDialog by remember { mutableStateOf<WiFiPeer?>(null) }
     var testMessageText by remember { mutableStateOf("Hello via Mesh!") }
@@ -245,44 +240,6 @@ fun MainScreen(
                 PeerRow(peer = peer, onSendMessageClick = { onItemClick(Chat(peer.devicePublicKeyId)) })
             }
         }
-
-        // 5. Audit Console Log Header
-        item {
-            Text(
-                text = "Structured Audit Console",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-            )
-        }
-
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF1E1E1E))
-                    .padding(8.dp)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (logs.isEmpty()) {
-                        Text(
-                            text = "Console logs will appear here...",
-                            color = Color.DarkGray,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp
-                        )
-                    } else {
-                        logs.take(30).forEach { log ->
-                            LogLine(log = log)
-                        }
-                    }
-                }
-            }
-        }
     }
 
     // Send Message Dialog
@@ -358,24 +315,3 @@ fun PeerRow(peer: WiFiPeer, onSendMessageClick: () -> Unit) {
     }
 }
 
-private val logTimeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
-
-@Composable
-fun LogLine(log: WiFiAuditLogEntry) {
-    val dateStr = logTimeFormat.format(Date(log.timestamp))
-    val severityColor = when (log.severity) {
-        "DEBUG" -> Color.Cyan
-        "INFO" -> Color.Green
-        "WARNING" -> Color.Yellow
-        "ERROR" -> Color.Red
-        "CRITICAL" -> Color.Red
-        else -> Color.White
-    }
-
-    Text(
-        text = "[$dateStr] [${log.severity}] ${log.eventType}: ${log.message}",
-        color = severityColor,
-        fontSize = 11.sp,
-        fontFamily = FontFamily.Monospace
-    )
-}

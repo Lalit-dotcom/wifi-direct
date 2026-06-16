@@ -31,9 +31,9 @@ private val LightColorScheme =
 
 @Composable
 fun WiFiDirectMeshTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
-  // Dynamic color is available on Android 12+
-  dynamicColor: Boolean = true,
+  darkTheme: Boolean = true,
+  // Dynamic color disabled to enforce consistent dark theme
+  dynamicColor: Boolean = false,
   content: @Composable () -> Unit,
 ) {
   val colorScheme =

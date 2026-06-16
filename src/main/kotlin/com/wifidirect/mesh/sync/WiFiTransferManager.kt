@@ -289,13 +289,13 @@ class WiFiTransferManager(
         }
     }
 
-    fun sendFile(peerId: String, fileName: String, fileBytes: ByteArray, isGroup: Boolean = false): String {
-        val bundleId = UUID.randomUUID().toString()
+    fun sendFile(peerId: String, fileName: String, fileBytes: ByteArray, isGroup: Boolean = false, bundleId: String? = null): String {
+        val finalBundleId = bundleId ?: UUID.randomUUID().toString()
         val messageId = UUID.randomUUID().toString()
         val isImage = fileName.endsWith(".png", true) || fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true) || fileName.endsWith(".gif", true)
 
         val manifest = chunkEngine.prepareOutgoing(
-            bundleId = bundleId,
+            bundleId = finalBundleId,
             messageId = messageId,
             payload = fileBytes,
             priority = if (isGroup) QueuePriority.GROUP_MESSAGE.value else QueuePriority.DIRECT_MESSAGE.value,
@@ -304,7 +304,7 @@ class WiFiTransferManager(
         )
 
         val progress = TransferProgress(
-            bundleId = bundleId,
+            bundleId = finalBundleId,
             fileName = fileName,
             totalBytes = fileBytes.size.toLong(),
             bytesTransferred = 0L,
@@ -314,13 +314,13 @@ class WiFiTransferManager(
             isGroup = isGroup,
             peerId = peerId
         )
-        transferProgress[bundleId] = progress
+        transferProgress[finalBundleId] = progress
         onTransferProgressUpdated?.invoke(progress)
 
-        val manifestMsg = "FILE_MANIFEST|$bundleId|$messageId|${fileBytes.size}|${manifest.chunkSizeValue}|${manifest.chunkCount}|${manifest.bundleHash}|${manifest.priority}|$fileName|$isImage|$isGroup|$peerId"
+        val manifestMsg = "FILE_MANIFEST|$finalBundleId|$messageId|${fileBytes.size}|${manifest.chunkSizeValue}|${manifest.chunkCount}|${manifest.bundleHash}|${manifest.priority}|$fileName|$isImage|$isGroup|$peerId"
         sendPayload(peerId, manifestMsg.toByteArray())
 
-        return bundleId
+        return finalBundleId
     }
 
     fun resumeFile(peerId: String, bundleId: String) {

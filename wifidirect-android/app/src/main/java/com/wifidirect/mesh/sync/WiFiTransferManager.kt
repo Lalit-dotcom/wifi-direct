@@ -289,8 +289,8 @@ class WiFiTransferManager(
         }
     }
 
-    fun sendFile(peerId: String, fileName: String, fileBytes: ByteArray, isGroup: Boolean = false): String {
-        val bundleId = UUID.randomUUID().toString()
+    fun sendFile(peerId: String, fileName: String, fileBytes: ByteArray, isGroup: Boolean = false, bundleId: String? = null): String {
+        val bundleId = bundleId ?: UUID.randomUUID().toString()
         val messageId = UUID.randomUUID().toString()
         val isImage = fileName.endsWith(".png", true) || fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true) || fileName.endsWith(".gif", true)
 

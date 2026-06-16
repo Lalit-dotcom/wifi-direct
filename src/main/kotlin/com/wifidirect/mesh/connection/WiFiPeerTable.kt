@@ -44,6 +44,16 @@ class WiFiPeerTable {
                 existingPeer.rssi = sighting.rssi
             }
         } else {
+            // Evict any stale peer that shares the same IP but a different node ID
+            // (e.g. the remote device rebooted and got a new long-term key)
+            val staleKeyId = peers.entries
+                .firstOrNull { (_, peer) ->
+                    peer.endpoints.any { ep -> ep.address == sighting.endpoint.address }
+                }?.key
+            if (staleKeyId != null && staleKeyId != deviceKeyId) {
+                peers.remove(staleKeyId)
+            }
+
             val newPeer = WiFiPeer(
                 devicePublicKeyId = deviceKeyId,
                 userPublicKeyId = null, // resolved post-handshake

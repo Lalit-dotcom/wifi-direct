@@ -253,21 +253,28 @@ object MeshManager {
                 try {
                     file.writeBytes(fileBytes)
                     val filePath = file.absolutePath
-                    
-                    if (isGroup) {
-                        addGroupMessage(ChatMessage(
-                            senderId = peerId,
-                            text = "Sent a file: $fileName",
-                            isSentByMe = false,
-                            senderName = getPeerName(peerId),
-                            filePath = filePath,
-                            fileName = fileName,
-                            fileSize = fileBytes.size.toLong(),
-                            isImage = isImage,
-                            isFile = !isImage,
-                            isGroup = true
-                        ))
+                    android.util.Log.d("MeshManager", "onFileReceived: peerId=$peerId file=$fileName isGroup=$isGroup path=$filePath")
 
+                    if (isGroup) {
+                        // Update existing placeholder message (from manifest) in-place rather than appending a duplicate
+                        val updated = updateGroupMessageFilePath(fileName, filePath, fileBytes.size.toLong(), isImage)
+                        if (!updated) {
+                            // No placeholder found — add a fresh message (e.g. relay path where manifest wasn't received)
+                            addGroupMessage(ChatMessage(
+                                senderId = peerId,
+                                text = "Sent a file: $fileName",
+                                isSentByMe = false,
+                                senderName = getPeerName(peerId),
+                                filePath = filePath,
+                                fileName = fileName,
+                                fileSize = fileBytes.size.toLong(),
+                                isImage = isImage,
+                                isFile = !isImage,
+                                isGroup = true
+                            ))
+                        }
+
+                        // Relay to other peers that don't have a direct link to the original sender
                         val activePeers = moduleInstance?.peerTable?.getAll() ?: emptyList()
                         for (peer in activePeers) {
                             if (peer.devicePublicKeyId != peerId) {
@@ -531,7 +538,8 @@ object MeshManager {
                     val session = module.connectionManager.getSession(peer.devicePublicKeyId)
                         ?: module.connectToWiFiPeer(peer.devicePublicKeyId)
                     if (session != null) {
-                        module.transferManager.sendFile(peer.devicePublicKeyId, fileName, fileBytes, isGroup = true)
+                        // Pass bundleId so the chunk transfer ID matches the manifest broadcast
+                        module.transferManager.sendFile(peer.devicePublicKeyId, fileName, fileBytes, isGroup = true, bundleId = bundleId)
                         val success = module.transferManager.sendPayload(peer.devicePublicKeyId, msg.serialize())
                         android.util.Log.d("MeshManager", "sendGroupFile: sent manifest & file to ${peer.devicePublicKeyId}. success=$success")
                     } else {
@@ -621,6 +629,27 @@ object MeshManager {
         val current = _messages.value
         val list = current["GROUP_CHAT"] ?: emptyList()
         _messages.value = current + ("GROUP_CHAT" to (list + message))
+    }
+
+    /**
+     * Finds the most recent group placeholder message for [fileName] that has no filePath yet
+     * and updates it in-place with the completed download path and size.
+     * Returns true if an existing placeholder was found and updated, false otherwise.
+     */
+    private fun updateGroupMessageFilePath(fileName: String, filePath: String, fileSize: Long, isImage: Boolean): Boolean {
+        val current = _messages.value
+        val list = (current["GROUP_CHAT"] ?: emptyList()).toMutableList()
+        val idx = list.indexOfLast { it.fileName == fileName && it.filePath == null && it.isGroup }
+        if (idx == -1) return false
+        list[idx] = list[idx].copy(
+            filePath = filePath,
+            fileSize = fileSize,
+            isImage = isImage,
+            isFile = !isImage
+        )
+        _messages.value = current + ("GROUP_CHAT" to list.toList())
+        android.util.Log.d("MeshManager", "updateGroupMessageFilePath: updated placeholder at idx=$idx for file=$fileName")
+        return true
     }
 
     fun dismissSosAlert() {
