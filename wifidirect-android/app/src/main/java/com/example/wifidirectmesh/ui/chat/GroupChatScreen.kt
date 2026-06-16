@@ -33,19 +33,14 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(
-    peerId: String,
+fun GroupChatScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val messagesMap by MeshManager.messages.collectAsState()
-    val peers by MeshManager.peers.collectAsState()
-    val chatMessages = messagesMap[peerId] ?: emptyList()
+    val groupMessages = messagesMap["GROUP_CHAT"] ?: emptyList()
     val transfers by MeshManager.transfers.collectAsState()
-
-    val peerObj = peers.find { it.devicePublicKeyId == peerId }
-    val isPeerConnected = peerObj != null && !peerObj.isBlocked && peerObj.cooldownUntil <= System.currentTimeMillis()
-
+    
     val imgCount = MeshManager.getDailyImageCount()
     val byteCount = MeshManager.getDailyByteCount()
     
@@ -55,9 +50,9 @@ fun ChatScreen(
     var textInput by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(chatMessages.size) {
-        if (chatMessages.isNotEmpty()) {
-            listState.animateScrollToItem(chatMessages.size - 1)
+    LaunchedEffect(groupMessages.size) {
+        if (groupMessages.isNotEmpty()) {
+            listState.animateScrollToItem(groupMessages.size - 1)
         }
     }
 
@@ -70,7 +65,7 @@ fun ChatScreen(
                 val name = getFileName(context, uri)
                 val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 if (bytes != null) {
-                    MeshManager.sendFile(peerId, name, bytes)
+                    MeshManager.sendGroupFile(name, bytes)
                 }
             }
         }
@@ -82,25 +77,15 @@ fun ChatScreen(
                 title = {
                     Column {
                         Text(
-                            text = "Peer: ${peerId.take(12)}...",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
+                            text = "Group Chat Room",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(if (isPeerConnected) Color(0xFF4CAF50) else Color.Gray)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isPeerConnected) "Active Connection" else "Offline / Disconnected",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            text = "All connected nodes are here",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 navigationIcon = {
@@ -153,7 +138,7 @@ fun ChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 12.dp)
             ) {
-                if (chatMessages.isEmpty()) {
+                if (groupMessages.isEmpty()) {
                     item {
                         Box(
                             modifier = Modifier
@@ -161,7 +146,7 @@ fun ChatScreen(
                                 .wrapContentSize(Alignment.Center)
                         ) {
                             Text(
-                                text = "No messages yet.\nType below to start chatting over Wi-Fi mesh!",
+                                text = "Group Chat is empty.\nType below to message everyone in the mesh!",
                                 color = Color.Gray,
                                 fontSize = 14.sp,
                                 textAlign = TextAlign.Center
@@ -169,8 +154,8 @@ fun ChatScreen(
                         }
                     }
                 } else {
-                    items(chatMessages) { msg ->
-                        DirectMessageBubble(message = msg, transfers = transfers)
+                    items(groupMessages) { msg ->
+                        GroupMessageBubble(message = msg, transfers = transfers)
                     }
                 }
             }
@@ -197,7 +182,7 @@ fun ChatScreen(
                     OutlinedTextField(
                         value = textInput,
                         onValueChange = { textInput = it },
-                        placeholder = { Text("Type a message...") },
+                        placeholder = { Text("Group message...") },
                         modifier = Modifier
                             .weight(1f)
                             .padding(end = 8.dp),
@@ -208,7 +193,7 @@ fun ChatScreen(
                     Button(
                         onClick = {
                             if (textInput.isNotBlank()) {
-                                MeshManager.sendMessage(peerId, textInput)
+                                MeshManager.sendGroupMessage(textInput)
                                 textInput = ""
                             }
                         },
@@ -225,7 +210,7 @@ fun ChatScreen(
 }
 
 @Composable
-fun DirectMessageBubble(
+fun GroupMessageBubble(
     message: ChatMessage,
     transfers: Map<String, TransferProgress>
 ) {
@@ -254,11 +239,20 @@ fun DirectMessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = alignment
     ) {
+        // Sender Name / Node ID label
+        Text(
+            text = "${message.senderName ?: "Unknown"} (${message.senderId.take(6)})",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Gray,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+        )
+
         Box(
             modifier = Modifier
                 .clip(bubbleShape)
                 .background(bubbleColor)
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
                 .widthIn(max = 280.dp)
                 .wrapContentHeight()
         ) {
@@ -282,6 +276,7 @@ fun DirectMessageBubble(
                             Text("Image load failed", color = contentColor, fontSize = 14.sp)
                         }
                     } else {
+                        // File attachment card
                         Card(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.2f)),
                             modifier = Modifier.fillMaxWidth()
@@ -302,6 +297,7 @@ fun DirectMessageBubble(
                         }
                     }
                 } else if (message.fileName != null) {
+                    // This is a manifest for an incomplete download or active transfer
                     val activeTransfer = transfers.values.find { it.fileName == message.fileName && !it.isComplete }
                     if (activeTransfer != null) {
                         val percentage = (activeTransfer.bytesTransferred.toFloat() / activeTransfer.totalBytes.toFloat()) * 100
@@ -359,12 +355,13 @@ fun DirectMessageBubble(
                 }
             }
         }
+        
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = timeFormat.format(Date(message.timestamp)),
             fontSize = 10.sp,
             color = Color.Gray,
-            modifier = Modifier.padding(horizontal = 4.dp)
+            modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 4.dp)
         )
     }
 }

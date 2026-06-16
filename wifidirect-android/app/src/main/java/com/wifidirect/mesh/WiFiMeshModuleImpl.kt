@@ -399,7 +399,13 @@ class WiFiMeshModuleImpl(
         val rankedPeers = rankWiFiPeersForConnection(peerTable.getAll(), SystemContext(80, false, 30f, UserWiFiPolicy.ALLOW_ALL, false, false))
         broadcastController.scheduleRebroadcast(message, currentCongestionState.state, rankedPeers,
             sender = { peerId: String, msg: Message ->
-                transferManager.sendPayload(peerId, msg.serialize())
+                val session = connectionManager.getSession(peerId) ?: connectToWiFiPeer(peerId)
+                if (session != null) {
+                    val success = transferManager.sendPayload(peerId, msg.serialize())
+                    auditLogger.debug(WiFiAuditEventType.TRANSFER_START, "Relayed message ${msg.id} to $peerId. success=$success")
+                } else {
+                    auditLogger.warn(WiFiAuditEventType.PEER_FAILURE, "Failed to connect to $peerId to relay message ${msg.id}")
+                }
             }
         )
     }

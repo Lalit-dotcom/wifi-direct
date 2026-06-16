@@ -16,6 +16,8 @@ import androidx.navigation3.ui.NavDisplay
 import com.example.wifidirectmesh.data.MeshManager
 import com.example.wifidirectmesh.ui.main.MainScreen
 import com.example.wifidirectmesh.ui.chat.ChatScreen
+import com.example.wifidirectmesh.ui.chat.GroupChatScreen
+import com.example.wifidirectmesh.GroupChat
 
 @Composable
 fun MainNavigation() {
@@ -34,6 +36,12 @@ fun MainNavigation() {
           entry<Chat> { key ->
             ChatScreen(
               peerId = key.peerId,
+              onBack = { backStack.removeLastOrNull() },
+              modifier = Modifier.safeDrawingPadding().padding(16.dp)
+            )
+          }
+          entry<GroupChat> {
+            GroupChatScreen(
               onBack = { backStack.removeLastOrNull() },
               modifier = Modifier.safeDrawingPadding().padding(16.dp)
             )

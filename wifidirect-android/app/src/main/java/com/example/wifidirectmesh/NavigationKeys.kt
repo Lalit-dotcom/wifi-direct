@@ -6,3 +6,5 @@ import kotlinx.serialization.Serializable
 @Serializable data object Main : NavKey
 
 @Serializable data class Chat(val peerId: String) : NavKey
+
+@Serializable data object GroupChat : NavKey
