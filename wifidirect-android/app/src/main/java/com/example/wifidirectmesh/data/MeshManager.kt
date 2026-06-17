@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 
 data class ChatMessage(
+    val id: String = UUID.randomUUID().toString(),
     val senderId: String,
     val text: String,
     val timestamp: Long = System.currentTimeMillis(),
@@ -60,6 +61,10 @@ object MeshManager {
 
     private val _transfers = MutableStateFlow<Map<String, TransferProgress>>(emptyMap())
     val transfers: StateFlow<Map<String, TransferProgress>> = _transfers.asStateFlow()
+
+    /** Tracks message IDs we have already displayed, preventing duplicate bubbles from echoes. */
+    private val seenMessageIds = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
+    private val deliveredBundleIds = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
 
     private var username = ""
 
@@ -178,18 +183,40 @@ object MeshManager {
                         android.util.Log.d("MeshManager", "GROUP_MESSAGE payload string: $contentStr")
                         if (contentStr.startsWith("GROUP_TXT|")) {
                             val parts = contentStr.split("|")
-                            if (parts.size >= 4) {
+                            // Format: GROUP_TXT|msgId|senderId|senderName|text
+                            if (parts.size >= 5) {
+                                val msgId = parts[1]
+                                val senderId = parts[2]
+                                val senderName = parts[3]
+                                val text = parts[4]
+                                android.util.Log.d("MeshManager", "Processed Group Text: msgId=$msgId senderId=$senderId ($senderName) text=$text")
+                                // Skip echo: we already added this message optimistically when sending
+                                if (senderId == _nodeId.value) {
+                                    android.util.Log.d("MeshManager", "Skipping GROUP_TXT echo from self (msgId=$msgId)")
+                                } else {
+                                    addGroupMessage(ChatMessage(
+                                        id = msgId,
+                                        senderId = senderId,
+                                        text = text,
+                                        isSentByMe = false,
+                                        senderName = senderName,
+                                        isGroup = true
+                                    ))
+                                }
+                            } else if (parts.size == 4) {
+                                // Legacy format without msgId: GROUP_TXT|senderId|senderName|text
                                 val senderId = parts[1]
                                 val senderName = parts[2]
                                 val text = parts[3]
-                                android.util.Log.d("MeshManager", "Processed Group Text: senderId=$senderId ($senderName) text=$text")
-                                addGroupMessage(ChatMessage(
-                                    senderId = senderId,
-                                    text = text,
-                                    isSentByMe = senderId == _nodeId.value,
-                                    senderName = senderName,
-                                    isGroup = true
-                                ))
+                                if (senderId != _nodeId.value) {
+                                    addGroupMessage(ChatMessage(
+                                        senderId = senderId,
+                                        text = text,
+                                        isSentByMe = false,
+                                        senderName = senderName,
+                                        isGroup = true
+                                    ))
+                                }
                             } else {
                                 android.util.Log.w("MeshManager", "GROUP_TXT parts size was < 4: ${parts.size}")
                             }
@@ -210,19 +237,21 @@ object MeshManager {
                                 val senderName = parts[12]
 
                                 android.util.Log.d("MeshManager", "Processed Group File Manifest: senderId=$senderId ($senderName) file=$fileName size=$totalSizeBytes bundleId=$bundleId")
-                                addGroupMessage(ChatMessage(
-                                    senderId = senderId,
-                                    text = "Sent a file: $fileName",
-                                    isSentByMe = senderId == _nodeId.value,
-                                    senderName = senderName,
-                                    fileName = fileName,
-                                    fileSize = totalSizeBytes,
-                                    isImage = isImage,
-                                    isFile = !isImage,
-                                    isGroup = true
-                                ))
-
+                                // Only add placeholder if we are not the original sender (already added it in sendGroupFile)
                                 if (senderId != _nodeId.value) {
+                                    android.util.Log.d("UI_INSERT", "Placeholder added: source=GROUP_FILE_MANIFEST, messageId=$messageId, bundleId=$bundleId, file=$fileName")
+                                    addGroupMessage(ChatMessage(
+                                        id = messageId,
+                                        senderId = senderId,
+                                        text = "Sent a file: $fileName",
+                                        isSentByMe = false,
+                                        senderName = senderName,
+                                        fileName = fileName,
+                                        fileSize = totalSizeBytes,
+                                        isImage = isImage,
+                                        isFile = !isImage,
+                                        isGroup = true
+                                    ))
                                     startIncomingFileTransferFromPeer(senderId, bundleId, messageId, totalSizeBytes, chunkSize, chunkCount, bundleHash, priority, fileName, isImage, isGroup)
                                 }
                             } else {
@@ -246,21 +275,50 @@ object MeshManager {
             _transfers.value = current + (progress.bundleId to progress)
         }
 
-        transferManager.onFileReceived = { peerId, fileName, fileBytes, isImage, isGroup ->
-            val context = MainActivity.currentContext
-            if (context != null) {
-                val file = java.io.File(context.cacheDir, "${UUID.randomUUID()}_$fileName")
-                try {
-                    file.writeBytes(fileBytes)
-                    val filePath = file.absolutePath
-                    android.util.Log.d("MeshManager", "onFileReceived: peerId=$peerId file=$fileName isGroup=$isGroup path=$filePath")
+        transferManager.onFileReceived = { peerId, bundleId, fileName, fileBytes, isImage, isGroup ->
+            if (deliveredBundleIds.add(bundleId)) {
+                val context = MainActivity.currentContext
+                if (context != null) {
+                    val file = java.io.File(context.cacheDir, "${UUID.randomUUID()}_$fileName")
+                    try {
+                        file.writeBytes(fileBytes)
+                        val filePath = file.absolutePath
+                        android.util.Log.d("MeshManager", "onFileReceived: peerId=$peerId file=$fileName isGroup=$isGroup path=$filePath")
 
-                    if (isGroup) {
-                        // Update existing placeholder message (from manifest) in-place rather than appending a duplicate
-                        val updated = updateGroupMessageFilePath(fileName, filePath, fileBytes.size.toLong(), isImage)
-                        if (!updated) {
-                            // No placeholder found — add a fresh message (e.g. relay path where manifest wasn't received)
-                            addGroupMessage(ChatMessage(
+                        if (isGroup) {
+                            // Update existing placeholder message (from manifest) in-place rather than appending a duplicate
+                            val updated = updateGroupMessageFilePath(fileName, filePath, fileBytes.size.toLong(), isImage)
+                            if (updated) {
+                                android.util.Log.d("UI_INSERT", "Placeholder updated: source=onFileReceived group, bundleId=$bundleId, file=$fileName, path=$filePath")
+                            } else {
+                                // No placeholder found — add a fresh message (e.g. relay path where manifest wasn't received)
+                                android.util.Log.d("UI_INSERT", "Fallback card added: source=onFileReceived group, bundleId=$bundleId, file=$fileName")
+                                addGroupMessage(ChatMessage(
+                                    id = bundleId,
+                                    senderId = peerId,
+                                    text = "Sent a file: $fileName",
+                                    isSentByMe = false,
+                                    senderName = getPeerName(peerId),
+                                    filePath = filePath,
+                                    fileName = fileName,
+                                    fileSize = fileBytes.size.toLong(),
+                                    isImage = isImage,
+                                    isFile = !isImage,
+                                    isGroup = true
+                                ))
+                            }
+
+                            // Relay to other peers that don't have a direct link to the original sender
+                            val activePeers = moduleInstance?.peerTable?.getAll() ?: emptyList()
+                            for (peer in activePeers) {
+                                if (peer.devicePublicKeyId != peerId) {
+                                    sendFileToPeer(peer.devicePublicKeyId, fileName, fileBytes, isGroup = true, bundleId = bundleId)
+                                }
+                            }
+                        } else {
+                            android.util.Log.d("UI_INSERT", "Direct card added: source=onFileReceived direct, bundleId=$bundleId, file=$fileName")
+                            addMessage(peerId, ChatMessage(
+                                id = bundleId,
                                 senderId = peerId,
                                 text = "Sent a file: $fileName",
                                 isSentByMe = false,
@@ -270,34 +328,15 @@ object MeshManager {
                                 fileSize = fileBytes.size.toLong(),
                                 isImage = isImage,
                                 isFile = !isImage,
-                                isGroup = true
+                                isGroup = false
                             ))
                         }
-
-                        // Relay to other peers that don't have a direct link to the original sender
-                        val activePeers = moduleInstance?.peerTable?.getAll() ?: emptyList()
-                        for (peer in activePeers) {
-                            if (peer.devicePublicKeyId != peerId) {
-                                sendFileToPeer(peer.devicePublicKeyId, fileName, fileBytes, isGroup = true)
-                            }
-                        }
-                    } else {
-                        addMessage(peerId, ChatMessage(
-                            senderId = peerId,
-                            text = "Sent a file: $fileName",
-                            isSentByMe = false,
-                            senderName = getPeerName(peerId),
-                            filePath = filePath,
-                            fileName = fileName,
-                            fileSize = fileBytes.size.toLong(),
-                            isImage = isImage,
-                            isFile = !isImage,
-                            isGroup = false
-                        ))
+                    } catch (e: Exception) {
+                        android.util.Log.e("MeshManager", "Error saving received file: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    android.util.Log.e("MeshManager", "Error saving received file: ${e.message}")
                 }
+            } else {
+                android.util.Log.d("MeshManager", "onFileReceived: duplicate dropped bundleId=$bundleId")
             }
         }
 
@@ -337,6 +376,11 @@ object MeshManager {
         _isStarted.value = false
         moduleInstance?.shutdown()
         moduleInstance = null
+        // Clear peer list immediately so stale cards vanish from the dashboard
+        _peers.value = emptyList()
+        // Clear seen-ID set so a fresh session starts clean
+        seenMessageIds.clear()
+        deliveredBundleIds.clear()
     }
 
     fun sendSOS() {
@@ -401,22 +445,30 @@ object MeshManager {
     fun sendGroupMessage(text: String) {
         val module = moduleInstance ?: return
         val senderName = getUsername()
-        val contentStr = "GROUP_TXT|${_nodeId.value}|$senderName|$text"
+        val msgId = "grp-" + UUID.randomUUID().toString().take(12)
+        // Include msgId in the payload so receivers can deduplicate echoes
+        val contentStr = "GROUP_TXT|$msgId|${_nodeId.value}|$senderName|$text"
         val msg = Message(
-            id = "grp-" + UUID.randomUUID().toString().take(8),
+            id = msgId,
             priority = QueuePriority.GROUP_MESSAGE,
             expiryTimestamp = System.currentTimeMillis() + 300_000L,
             ttl = 8,
             payload = contentStr.toByteArray()
         )
 
-        addGroupMessage(ChatMessage(
+        val localMsg = ChatMessage(
+            id = msgId,
             senderId = _nodeId.value,
             text = text,
             isSentByMe = true,
             senderName = senderName,
             isGroup = true
-        ))
+        )
+        // NOTE: do NOT pre-register msgId in seenMessageIds here.
+        // addGroupMessage will register it on first insertion.
+        // Echo-prevention on receive is handled in onPayloadReceived by
+        // checking senderId == _nodeId.value — so no echo will ever reach addGroupMessage.
+        addGroupMessage(localMsg)
 
         kotlin.concurrent.thread(name = "MeshGroupMessageSender") {
             val activePeers = module.peerTable.getAll()
@@ -557,12 +609,12 @@ object MeshManager {
         module.transferManager.resumeFile(peerId, bundleId)
     }
 
-    fun sendFileToPeer(peerId: String, fileName: String, fileBytes: ByteArray, isGroup: Boolean) {
+    fun sendFileToPeer(peerId: String, fileName: String, fileBytes: ByteArray, isGroup: Boolean, bundleId: String? = null) {
         val module = moduleInstance ?: return
         kotlin.concurrent.thread {
             val session = module.connectToWiFiPeer(peerId)
             if (session != null) {
-                module.transferManager.sendFile(peerId, fileName, fileBytes, isGroup = isGroup)
+                module.transferManager.sendFile(peerId, fileName, fileBytes, isGroup = isGroup, bundleId = bundleId)
             }
         }
     }
@@ -581,6 +633,10 @@ object MeshManager {
         isGroup: Boolean
     ) {
         val module = moduleInstance ?: return
+        if (module.transferManager.isCompleted(bundleId)) {
+            android.util.Log.d("MeshManager", "startIncomingFileTransferFromPeer: bundleId=$bundleId already completed. Skipping.")
+            return
+        }
         kotlin.concurrent.thread {
             val session = module.connectToWiFiPeer(peerId)
             if (session != null) {
@@ -620,12 +676,29 @@ object MeshManager {
     fun getPeerName(peerId: String): String = "Node-${peerId.take(8)}"
 
     private fun addMessage(peerId: String, message: ChatMessage) {
+        // Deduplication: skip if this message ID was already displayed
+        if (!seenMessageIds.add(message.id)) {
+            android.util.Log.d("MeshManager", "addMessage: duplicate dropped id=${message.id}")
+            return
+        }
+        // Cap the seen-IDs set size to avoid unbounded memory growth
+        if (seenMessageIds.size > 500) {
+            seenMessageIds.iterator().let { it.next(); it.remove() }
+        }
         val current = _messages.value
         val list = current[peerId] ?: emptyList()
         _messages.value = current + (peerId to (list + message))
     }
 
     private fun addGroupMessage(message: ChatMessage) {
+        // Deduplication: skip if this message ID was already displayed
+        if (!seenMessageIds.add(message.id)) {
+            android.util.Log.d("MeshManager", "addGroupMessage: duplicate dropped id=${message.id}")
+            return
+        }
+        if (seenMessageIds.size > 500) {
+            seenMessageIds.iterator().let { it.next(); it.remove() }
+        }
         val current = _messages.value
         val list = current["GROUP_CHAT"] ?: emptyList()
         _messages.value = current + ("GROUP_CHAT" to (list + message))

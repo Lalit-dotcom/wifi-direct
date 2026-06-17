@@ -56,6 +56,14 @@ fun GroupChatScreen(
         }
     }
 
+    var cameraTempUri by remember { mutableStateOf<Uri?>(null) }
+    var photoPreviewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var showPreviewDialog by remember { mutableStateOf(false) }
+    var pendingImageBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var pendingImageName by remember { mutableStateOf("") }
+
+    val context = MainActivity.currentContext ?: androidx.compose.ui.platform.LocalContext.current
+
     val pickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -63,11 +71,71 @@ fun GroupChatScreen(
             val context = MainActivity.currentContext
             if (context != null) {
                 val name = getFileName(context, uri)
-                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                if (bytes != null) {
-                    MeshManager.sendGroupFile(name, bytes)
+                val isImage = name.endsWith(".png", true) || name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) || name.endsWith(".gif", true)
+                if (isImage) {
+                    try {
+                        val compressed = com.example.wifidirectmesh.data.ImageCompressor.compressUri(context, uri)
+                        if (compressed != null) {
+                            val bitmap = android.graphics.BitmapFactory.decodeByteArray(compressed, 0, compressed.size)
+                            if (bitmap != null) {
+                                photoPreviewBitmap = bitmap
+                                pendingImageBytes = compressed
+                                pendingImageName = name
+                                showPreviewDialog = true
+                            }
+                        } else {
+                            android.widget.Toast.makeText(context, "Failed to compress image", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        android.widget.Toast.makeText(context, "Error processing image: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    if (bytes != null) {
+                        MeshManager.sendGroupFile(name, bytes)
+                    }
                 }
             }
+        }
+    }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = GroupTakePictureWithExtras()
+    ) { success: Boolean ->
+        if (success) {
+            val uri = cameraTempUri
+            if (uri != null) {
+                try {
+                    val compressed = com.example.wifidirectmesh.data.ImageCompressor.compressUri(context, uri)
+                    if (compressed != null) {
+                        val bitmap = android.graphics.BitmapFactory.decodeByteArray(compressed, 0, compressed.size)
+                        if (bitmap != null) {
+                            photoPreviewBitmap = bitmap
+                            pendingImageBytes = compressed
+                            pendingImageName = "photo_${System.currentTimeMillis()}.jpg"
+                            showPreviewDialog = true
+                        }
+                    } else {
+                        android.widget.Toast.makeText(context, "Failed to load/compress captured image", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(context, "Failed to capture image: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            val uri = createTempCameraUri(context)
+            if (uri != null) {
+                cameraTempUri = uri
+                cameraLauncher.launch(uri)
+            }
+        } else {
+            android.widget.Toast.makeText(context, "Camera permission required to take pictures", android.widget.Toast.LENGTH_LONG).show()
         }
     }
 
@@ -179,6 +247,31 @@ fun GroupChatScreen(
                         Text("+", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
 
+                    IconButton(
+                        onClick = {
+                            if (MeshManager.getDailyImageCount() >= 20) {
+                                android.widget.Toast.makeText(context, "Daily image limit (20) reached. Cannot send image.", android.widget.Toast.LENGTH_LONG).show()
+                            } else {
+                                val permissionCheck = androidx.core.content.ContextCompat.checkSelfPermission(
+                                    context,
+                                    android.Manifest.permission.CAMERA
+                                )
+                                if (permissionCheck == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                    val uri = createTempCameraUri(context)
+                                    if (uri != null) {
+                                        cameraTempUri = uri
+                                        cameraLauncher.launch(uri)
+                                    }
+                                } else {
+                                    cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                }
+                            }
+                        },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) {
+                        Text("📷", fontSize = 22.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+
                     OutlinedTextField(
                         value = textInput,
                         onValueChange = { textInput = it },
@@ -205,6 +298,59 @@ fun GroupChatScreen(
                     }
                 }
             }
+        }
+
+        if (showPreviewDialog && photoPreviewBitmap != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    showPreviewDialog = false
+                    photoPreviewBitmap = null
+                    pendingImageBytes = null
+                },
+                title = { Text("Confirm Send") },
+                text = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Image(
+                            bitmap = photoPreviewBitmap!!.asImageBitmap(),
+                            contentDescription = "Captured Image Preview",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 300.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val sizeStr = com.example.wifidirectmesh.data.ImageCompressor.formatSize(pendingImageBytes?.size?.toLong() ?: 0L)
+                        Text("Do you want to send this image to the group chat?")
+                        Text("Compressed Size: $sizeStr", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val bytes = pendingImageBytes
+                            if (bytes != null) {
+                                MeshManager.sendGroupFile(pendingImageName, bytes)
+                            }
+                            showPreviewDialog = false
+                            photoPreviewBitmap = null
+                            pendingImageBytes = null
+                        }
+                    ) {
+                        Text("Send")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showPreviewDialog = false
+                            photoPreviewBitmap = null
+                            pendingImageBytes = null
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }
@@ -375,4 +521,30 @@ private fun getFileName(context: android.content.Context, uri: Uri): String {
         }
     }
     return name
+}
+
+private fun createTempCameraUri(context: android.content.Context): Uri? {
+    return try {
+        val tempDir = File(context.cacheDir, "camera")
+        if (!tempDir.exists()) {
+            tempDir.mkdirs()
+        }
+        val file = File(tempDir, "photo_${System.currentTimeMillis()}.jpg")
+        androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "com.example.wifidirectmesh.fileprovider",
+            file
+        )
+    } catch (e: Exception) {
+        android.util.Log.e("GroupChatScreen", "Error creating temp camera URI: ${e.message}")
+        null
+    }
+}
+
+private class GroupTakePictureWithExtras : ActivityResultContracts.TakePicture() {
+    override fun createIntent(context: android.content.Context, input: Uri): android.content.Intent {
+        val intent = super.createIntent(context, input)
+        intent.putExtra(android.provider.MediaStore.EXTRA_SIZE_LIMIT, 500 * 1024L)
+        return intent
+    }
 }

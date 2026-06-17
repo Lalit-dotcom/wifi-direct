@@ -1,10 +1,12 @@
-package com.example.wifidirectmesh.ui.main
+﻿package com.example.wifidirectmesh.ui.main
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,6 +17,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -32,248 +35,356 @@ fun MainScreen(
     val isStarted by viewModel.isStarted.collectAsState()
     val nodeId by viewModel.nodeId.collectAsState()
     val congestionState by viewModel.congestionState.collectAsState()
-    val operatingMode by viewModel.operatingMode.collectAsState()
     val peers by viewModel.peers.collectAsState()
 
-    var showSendDialog by remember { mutableStateOf<WiFiPeer?>(null) }
-    var testMessageText by remember { mutableStateOf("Hello via Mesh!") }
+    var tempUsername by remember {
+        mutableStateOf(com.example.wifidirectmesh.data.MeshManager.getUsername())
+    }
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(vertical = 16.dp)
     ) {
-        // 1. Header
+
+        // Header
         item {
             Text(
-                text = "Wi-Fi Mesh Dashboard",
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 12.dp)
+                text = "Wi-Fi Mesh",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = if (isStarted) "Mesh is active — scanning for peers"
+                       else "Offline — tap Start Mesh to connect",
+                fontSize = 13.sp,
+                color = if (isStarted) Color(0xFF4CAF50)
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
             )
         }
 
-        // 2. Node Status Card
+        // Always-visible Display Name
         item {
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 4.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (isStarted) "Node Status: ACTIVE" else "Node Status: INACTIVE",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = if (isStarted) Color(0xFF4CAF50) else Color.Gray
-                        )
-                        Button(
-                            onClick = { if (isStarted) viewModel.stopMesh() else viewModel.startMesh() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isStarted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Text(text = if (isStarted) "Stop Mesh" else "Start Mesh")
-                        }
-                    }
-
-                    if (isStarted) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(text = "Node ID: ${nodeId.take(12)}...", fontFamily = FontFamily.Monospace)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(text = "Congestion:")
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(
-                                        when (congestionState) {
-                                            CongestionState.GREEN -> Color(0xFF4CAF50)
-                                            CongestionState.YELLOW -> Color(0xFFFFEB3B)
-                                            CongestionState.ORANGE -> Color(0xFFFF9800)
-                                            CongestionState.RED -> Color(0xFFF44336)
-                                        }
-                                    )
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = congestionState.name,
-                                    color = if (congestionState == CongestionState.YELLOW) Color.Black else Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp
-                                )
-                            }
-
-                            Text(text = "Mode:")
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(MaterialTheme.colorScheme.secondaryContainer)
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = operatingMode.name,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Username Customization (Only when started)
-        if (isStarted) {
-            item {
-                var tempUsername by remember { mutableStateOf(com.example.wifidirectmesh.data.MeshManager.getUsername()) }
-                Card(
+                OutlinedTextField(
+                    value = tempUsername,
+                    onValueChange = {
+                        tempUsername = it
+                        com.example.wifidirectmesh.data.MeshManager.setUsername(it)
+                    },
+                    label = { Text("Your Display Name") },
+                    placeholder = { Text("Enter a name before joining...") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 4.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = tempUsername,
-                            onValueChange = { 
-                                tempUsername = it
-                                com.example.wifidirectmesh.data.MeshManager.setUsername(it)
-                            },
-                            label = { Text("Your Display Name") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                    }
-                }
+                        .padding(12.dp),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
             }
+        }
 
-            // 3. SOS Trigger & Group Chat
+        // ── INACTIVE STATE ─────────────────────────────────────────────────
+        if (!isStarted) {
+
+            item { OfflineCard() }
+
             item {
-                val infiniteTransition = rememberInfiniteTransition(label = "Pulse")
-                val pulseScale by infiniteTransition.animateFloat(
-                    initialValue = 0.95f,
-                    targetValue = 1.05f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1000, easing = LinearOutSlowInEasing),
-                        repeatMode = RepeatMode.Reverse
+                Button(
+                    onClick = { viewModel.startMesh() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp),
+                    shape = RoundedCornerShape(30.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
                     ),
-                    label = "Scale"
-                )
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { viewModel.triggerSOS() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(60.dp)
-                            .scale(pulseScale),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = "⚠️ SEND SOS EMERGENCY ANNOUNCEMENT",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = Color.White
-                        )
-                    }
-
-                    // Group Chat Room button
-                    Button(
-                        onClick = { onItemClick(com.example.wifidirectmesh.GroupChat) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = "💬 OPEN GROUP CHAT ROOM",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = Color.White
-                        )
-                    }
-                }
-            }
-        }
-
-        // 4. Discovered Peers List Header
-        item {
-            Text(
-                text = "Discovered Peers (${peers.size})",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-            )
-        }
-
-        if (peers.isEmpty()) {
-            item {
-                Text(
-                    text = if (isStarted) "Scanning for peers..." else "Start the mesh module to scan",
-                    color = Color.Gray,
-                    modifier = Modifier.padding(vertical = 12.dp)
-                )
-            }
-        } else {
-            items(peers) { peer ->
-                PeerRow(peer = peer, onSendMessageClick = { onItemClick(Chat(peer.devicePublicKeyId)) })
-            }
-        }
-    }
-
-    // Send Message Dialog
-    if (showSendDialog != null) {
-        val targetPeer = showSendDialog!!
-        AlertDialog(
-            onDismissRequest = { showSendDialog = null },
-            title = { Text(text = "Send Message to ${targetPeer.devicePublicKeyId.take(8)}") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = testMessageText,
-                        onValueChange = { testMessageText = it },
-                        label = { Text("Message Body") },
-                        modifier = Modifier.fillMaxWidth()
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
+                ) {
+                    Text(
+                        text = "Start Mesh",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.sendTestMessage(targetPeer.devicePublicKeyId, testMessageText)
-                        showSendDialog = null
-                    }
+            }
+
+            item {
+                Button(
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 ) {
-                    Text("Send")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSendDialog = null }) {
-                    Text("Cancel")
+                    Text(
+                        text = "Start Mesh to enable Group Chat",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
+
+            item {
+                Text(
+                    text = "Discovered Peers",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Tap Start Mesh to begin scanning\nfor nearby devices",
+                            textAlign = TextAlign.Center,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 22.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── ACTIVE STATE ───────────────────────────────────────────────────
+        if (isStarted) {
+
+            item {
+                ActiveStatusCard(
+                    nodeId = nodeId,
+                    congestionState = congestionState,
+                    onStop = { viewModel.stopMesh() }
+                )
+            }
+
+            item {
+                Button(
+                    onClick = { onItemClick(com.example.wifidirectmesh.GroupChat) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Text(
+                        text = "Open Group Chat Room",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            item {
+                Text(
+                    text = "Discovered Peers (${peers.size})",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+
+            if (peers.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(28.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Scanning for nearby devices...",
+                                textAlign = TextAlign.Center,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            } else {
+                items(peers) { peer ->
+                    PeerRow(
+                        peer = peer,
+                        onSendMessageClick = { onItemClick(Chat(peer.devicePublicKeyId)) }
+                    )
+                }
+            }
+
+            item { SosButton(onClick = { viewModel.triggerSOS() }) }
+        }
+    }
+}
+
+@Composable
+private fun OfflineCard() {
+    val infiniteTransition = rememberInfiniteTransition(label = "OfflinePulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1300, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "Alpha"
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .background(Color.Gray.copy(alpha = pulseAlpha)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(text = "📡", fontSize = 30.sp)
+            }
+            Text(
+                text = "Mesh is Offline",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "Start the mesh to discover nearby peers\nand join the secure network",
+                textAlign = TextAlign.Center,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                lineHeight = 20.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActiveStatusCard(
+    nodeId: String,
+    congestionState: CongestionState,
+    onStop: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF4CAF50))
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Node Active",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = Color(0xFF4CAF50)
+                    )
+                }
+                Button(
+                    onClick = onStop,
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text("Stop Mesh", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Text(
+                text = "Node ID: ${nodeId.take(16)}...",
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val congestionColor = when (congestionState) {
+                CongestionState.GREEN  -> Color(0xFF4CAF50)
+                CongestionState.YELLOW -> Color(0xFFFFEB3B)
+                CongestionState.ORANGE -> Color(0xFFFF9800)
+                CongestionState.RED    -> Color(0xFFF44336)
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(congestionColor.copy(alpha = 0.15f))
+                    .border(1.dp, congestionColor, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "Network: ${congestionState.name}",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = congestionColor
+                )
+            }
+        }
     }
 }
 
@@ -281,37 +392,100 @@ fun MainScreen(
 fun PeerRow(peer: WiFiPeer, onSendMessageClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Peer: ${peer.devicePublicKeyId.take(12)}...",
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-                Text(
-                    text = "EP: ${peer.endpoints.firstOrNull()?.address ?: "N/A"}:${peer.endpoints.firstOrNull()?.port ?: 0}",
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(text = "RSSI: ${peer.rssi} dBm", fontSize = 12.sp, color = Color.Gray)
-                    Text(text = "Trust: ${peer.trustScore}", fontSize = 12.sp, color = Color.Gray)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = peer.devicePublicKeyId.take(2).uppercase(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Node ${peer.devicePublicKeyId.take(8)}...",
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp
+                    )
+                    val rssiColor = when {
+                        peer.rssi >= -60 -> Color(0xFF4CAF50)
+                        peer.rssi >= -75 -> Color(0xFFFF9800)
+                        else             -> Color(0xFFF44336)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(text = "${peer.rssi} dBm", fontSize = 11.sp, color = rssiColor)
+                        Text(text = "•", fontSize = 11.sp, color = Color.Gray)
+                        Text(
+                            text = peer.endpoints.firstOrNull()?.address ?: "N/A",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
                 }
             }
 
-            Button(onClick = onSendMessageClick, contentPadding = PaddingValues(horizontal = 12.dp)) {
-                Text("Chat", fontSize = 12.sp)
+            Button(
+                onClick = onSendMessageClick,
+                shape = RoundedCornerShape(20.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                modifier = Modifier.height(36.dp)
+            ) {
+                Text("Chat", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
 
+@Composable
+private fun SosButton(onClick: () -> Unit) {
+    val infiniteTransition = rememberInfiniteTransition(label = "SosPulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.97f,
+        targetValue = 1.03f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "Scale"
+    )
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .scale(pulseScale),
+        shape = RoundedCornerShape(29.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+    ) {
+        Text(
+            text = "SEND SOS EMERGENCY",
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 15.sp,
+            color = Color.White
+        )
+    }
+}

@@ -41,7 +41,10 @@ class WiFiTransferManager(
     val chunkEngine = WiFiChunkTransferEngine()
     val transferProgress = ConcurrentHashMap<String, TransferProgress>()
     @Volatile var onTransferProgressUpdated: ((TransferProgress) -> Unit)? = null
-    @Volatile var onFileReceived: ((peerId: String, fileName: String, fileBytes: ByteArray, isImage: Boolean, isGroup: Boolean) -> Unit)? = null
+    @Volatile var onFileReceived: ((peerId: String, bundleId: String, fileName: String, fileBytes: ByteArray, isImage: Boolean, isGroup: Boolean) -> Unit)? = null
+    private val completedBundleIds = ConcurrentHashMap.newKeySet<String>()
+
+    fun isCompleted(bundleId: String): Boolean = completedBundleIds.contains(bundleId)
 
     fun startListeningToSession(session: WiFiConnectionSession) {
         val peerId = session.peerId
@@ -206,6 +209,12 @@ class WiFiTransferManager(
                     if (parts.size >= 5) {
                         val bundleId = parts[1]
                         val chunkIndex = parts[2].toInt()
+                        
+                        if (completedBundleIds.contains(bundleId)) {
+                            sendPayload(peerId, "CHUNK_ACK|$bundleId|$chunkIndex".toByteArray())
+                            return
+                        }
+
                         val chunkHash = parts[3]
                         val hexPayload = parts[4]
                         val payload = hexToBytes(hexPayload)
@@ -232,10 +241,10 @@ class WiFiTransferManager(
                                 transferProgress[bundleId] = updated
                                 onTransferProgressUpdated?.invoke(updated)
 
-                                if (isComplete) {
+                                if (isComplete && completedBundleIds.add(bundleId)) {
                                     val fullBytes = chunkEngine.tryReassemble(bundleId)
                                     if (fullBytes != null) {
-                                        onFileReceived?.invoke(peerId, progress.fileName, fullBytes, progress.isImage, progress.isGroup)
+                                        onFileReceived?.invoke(peerId, bundleId, progress.fileName, fullBytes, progress.isImage, progress.isGroup)
                                     }
                                 }
                             }
